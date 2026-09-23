@@ -119,6 +119,8 @@ def test_end_to_end_inspection_success(client):
     assert saved_json_path.exists()
     persisted = json.loads(saved_json_path.read_text(encoding="utf-8"))
     assert persisted["inspection_id"] == inspection_id
+    assert storage.get_report_path(inspection_id).exists()
+    assert storage.get_report_path(inspection_id).read_bytes().startswith(b"%PDF")
 
 
 # ----------------------------------------------------------------------

@@ -7,6 +7,7 @@ Does NOT call automatic package boundary detection.
 
 import json
 import logging
+import re
 from typing import Any, List, Optional, Union
 import cv2
 from fastapi import UploadFile
@@ -218,30 +219,58 @@ class MeasurementService:
     def _extract_measurable_candidates(
         self,
         extraction: LabelExtractionResult,
+        allow_region_recovery: bool = False,
     ) -> List[dict]:
-        """Collects relevant statutory declarations that contain a numeral_region."""
+        """Collects statutory numerals using explicit or safely interpolated regions."""
         candidates = []
+
+        def recover_region(raw_text: Optional[str], numeral_options: List[str], bbox: Optional[List[float]]) -> Optional[List[float]]:
+            if not raw_text or not bbox or len(bbox) != 4 or len(raw_text) == 0:
+                return None
+            for option in numeral_options:
+                if not option:
+                    continue
+                match = re.search(re.escape(option), raw_text, flags=re.IGNORECASE)
+                if not match:
+                    continue
+                x_min, y_min, x_max, y_max = bbox
+                span_x = x_max - x_min
+                return [
+                    round(x_min + (match.start() / len(raw_text)) * span_x, 4),
+                    y_min,
+                    round(x_min + (match.end() / len(raw_text)) * span_x, 4),
+                    y_max,
+                ]
+            return None
 
         # 1. Net Quantity numeral region
         net_qty = extraction.net_quantity
-        if net_qty and net_qty.numeral_region and len(net_qty.numeral_region) == 4:
+        net_region = net_qty.numeral_region if net_qty else None
+        if allow_region_recovery and net_qty and not (net_region and len(net_region) == 4):
+            net_value = str(int(net_qty.value)) if net_qty.value is not None and net_qty.value.is_integer() else str(net_qty.value or "")
+            net_region = recover_region(net_qty.raw_text, [net_value], net_qty.bbox)
+        if net_qty and net_region and len(net_region) == 4:
             val_str = str(int(net_qty.value)) if (net_qty.value is not None and net_qty.value.is_integer()) else str(net_qty.value or "")
             candidates.append({
                 "field": "net_quantity",
                 "raw_text": net_qty.raw_text or f"{val_str} {net_qty.unit or ''}".strip(),
                 "numeral": val_str,
-                "region": net_qty.numeral_region,
+                "region": net_region,
             })
 
         # 2. MRP numeral region
         mrp = extraction.mrp
-        if mrp and mrp.numeral_region and len(mrp.numeral_region) == 4:
-            mrp_val_str = f"{mrp.value:.2f}" if (mrp.value is not None and mrp.value > 0) else str(mrp.value or "")
+        mrp_value = f"{mrp.value:.2f}" if mrp and mrp.value is not None and mrp.value > 0 else str(mrp.value or "") if mrp else ""
+        mrp_region = mrp.numeral_region if mrp else None
+        if allow_region_recovery and mrp and not (mrp_region and len(mrp_region) == 4):
+            mrp_region = recover_region(mrp.raw_text, [mrp_value, str(mrp.value or "")], mrp.bbox)
+        if mrp and mrp_region and len(mrp_region) == 4:
+            mrp_val_str = mrp_value
             candidates.append({
                 "field": "mrp",
                 "raw_text": mrp.raw_text or f"MRP {mrp.currency or '₹'}{mrp_val_str}".strip(),
                 "numeral": mrp_val_str,
-                "region": mrp.numeral_region,
+                "region": mrp_region,
             })
 
         # 3. Date numeral regions (manufacture / packing / import)
@@ -265,6 +294,7 @@ class MeasurementService:
         package_height_mm: float,
         package_bbox_px: Optional[Union[str, List[Any]]] = None,
         include_debug_image: bool = False,
+        allow_no_numeral_regions: bool = False,
     ) -> MeasurementResponseData:
         """Executes the complete numeral measurement workflow.
 
@@ -366,8 +396,18 @@ class MeasurementService:
         )
 
         # 6. Check measurable candidates
-        candidates = self._extract_measurable_candidates(extraction)
+        candidates = self._extract_measurable_candidates(
+            extraction,
+            allow_region_recovery=allow_no_numeral_regions,
+        )
         if not candidates:
+            if allow_no_numeral_regions:
+                return MeasurementResponseData(
+                    image=MeasurementImageMetadata(width=img_w, height=img_h),
+                    calibration=calibration,
+                    measurements=[],
+                    debug_image_base64=None,
+                )
             raise MeasurementServiceError(
                 code="NO_NUMERAL_REGIONS_FOUND",
                 message=(

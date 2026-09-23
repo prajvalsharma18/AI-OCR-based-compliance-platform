@@ -43,6 +43,28 @@ class Settings(BaseSettings):
         default="127.0.0.1",
         description="Application server host.",
     )
+    REPORTS_DIR: str = Field(
+        default="reports",
+        description="Root directory for inspection image, JSON, and PDF artifacts.",
+    )
+
+    # MongoDB Settings
+    MONGODB_URI: str = Field(
+        default="mongodb://localhost:27017",
+        description="MongoDB connection URI string (standalone, replica set, or Atlas).",
+    )
+    MONGODB_DATABASE: str = Field(
+        default="compliance_checker",
+        description="MongoDB database name for storing inspections.",
+    )
+    MONGODB_ENABLED: bool = Field(
+        default=True,
+        description="Flag to enable or disable MongoDB persistence layer.",
+    )
+    MONGODB_TIMEOUT_MS: int = Field(
+        default=2000,
+        description="Server selection and connection timeout in milliseconds.",
+    )
 
     @field_validator("ALLOWED_IMAGE_TYPES", mode="before")
     @classmethod

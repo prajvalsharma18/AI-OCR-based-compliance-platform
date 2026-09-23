@@ -22,6 +22,7 @@ Design Constraints:
 
 from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
+from app.schemas.history import PersistenceInfo
 
 UnifiedStatus = Literal[
     "PASS",
@@ -337,6 +338,10 @@ class InspectionResponseData(BaseModel):
     metadata: InspectionMetadata
     summary: InspectionSummary
     findings: List[UnifiedDeclarationFinding] = Field(default_factory=list)
+    inspection_persistence: PersistenceInfo = Field(
+        default_factory=lambda: PersistenceInfo(status="disabled"),
+        description="MongoDB persistence outcome; separate from compliance findings.",
+    )
     disclaimer: str = Field(
         default=(
             "This inspection summarizes findings detected from the supplied package image(s). "

@@ -195,3 +195,90 @@ def get_pdf_report(
         return False, f"Could not connect to PDF report service at {BACKEND_URL}."
     except Exception as exc:
         return False, f"Error generating PDF report: {str(exc)}"
+
+
+def list_inspections(
+    limit: int = 20,
+    skip: int = 0,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    status: Optional[str] = None,
+    brand_name: Optional[str] = None,
+    package_type: Optional[str] = None,
+    inspection_id: Optional[str] = None,
+    timeout: float = 10.0,
+) -> Dict[str, Any]:
+    """Loads compact inspection history through FastAPI."""
+    params: Dict[str, Any] = {"limit": limit, "skip": skip}
+    for key, value in {
+        "date_from": date_from,
+        "date_to": date_to,
+        "status": status,
+        "brand_name": brand_name,
+        "package_type": package_type,
+        "inspection_id": inspection_id,
+    }.items():
+        if value:
+            params[key] = value
+
+    try:
+        resp = requests.get(f"{BACKEND_URL}/api/v1/inspections", params=params, timeout=timeout)
+        body = resp.json()
+        if resp.status_code == 200:
+            return body
+        return body if isinstance(body, dict) else {"success": False, "error": {"message": f"HTTP {resp.status_code}"}}
+    except requests.exceptions.RequestException as exc:
+        return {"success": False, "error": {"code": "HISTORY_UNAVAILABLE", "message": str(exc)}}
+
+
+def get_inspection(inspection_id: str, timeout: float = 10.0) -> Dict[str, Any]:
+    """Loads one complete persisted inspection through FastAPI."""
+    try:
+        resp = requests.get(f"{BACKEND_URL}/api/v1/inspections/{inspection_id}", timeout=timeout)
+        body = resp.json()
+        if resp.status_code == 200:
+            return body
+        return body if isinstance(body, dict) else {"success": False, "error": {"message": f"HTTP {resp.status_code}"}}
+    except requests.exceptions.RequestException as exc:
+        return {"success": False, "error": {"code": "INSPECTION_UNAVAILABLE", "message": str(exc)}}
+
+
+def get_inspection_image(inspection_id: str, timeout: float = 10.0) -> Tuple[bool, Union[bytes, str]]:
+    """Retrieves historical evidence through FastAPI without exposing server paths."""
+    try:
+        resp = requests.get(f"{BACKEND_URL}/api/v1/inspections/{inspection_id}/image", timeout=timeout)
+        if resp.status_code == 200:
+            return True, resp.content
+        return False, f"Backend returned HTTP {resp.status_code}"
+    except requests.exceptions.RequestException as exc:
+        return False, str(exc)
+
+
+def get_stored_report(inspection_id: str, timeout: float = 30.0) -> Tuple[bool, Union[bytes, str]]:
+    """Downloads the already-generated historical PDF through FastAPI."""
+    try:
+        resp = requests.get(f"{BACKEND_URL}/api/v1/inspections/{inspection_id}/report", timeout=timeout)
+        if resp.status_code == 200:
+            return True, resp.content
+        return False, f"Backend returned HTTP {resp.status_code}"
+    except requests.exceptions.RequestException as exc:
+        return False, str(exc)
+
+
+def update_review(
+    inspection_id: str,
+    review_status: str,
+    notes: str,
+    timeout: float = 10.0,
+) -> Dict[str, Any]:
+    """Persists only manual LMO review fields through FastAPI."""
+    try:
+        resp = requests.patch(
+            f"{BACKEND_URL}/api/v1/inspections/{inspection_id}/review",
+            json={"status": review_status, "notes": notes},
+            timeout=timeout,
+        )
+        body = resp.json()
+        return body if isinstance(body, dict) else {"success": False, "error": {"message": f"HTTP {resp.status_code}"}}
+    except requests.exceptions.RequestException as exc:
+        return {"success": False, "error": {"code": "REVIEW_UNAVAILABLE", "message": str(exc)}}

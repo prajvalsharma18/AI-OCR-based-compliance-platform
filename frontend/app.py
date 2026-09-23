@@ -12,7 +12,15 @@ import json
 import logging
 import streamlit as st
 
-from api_client import BACKEND_URL, check_health, get_pdf_report, run_inspection
+from api_client import (
+    BACKEND_URL,
+    check_health,
+    get_inspection,
+    get_inspection_image,
+    get_stored_report,
+    list_inspections,
+    run_inspection,
+)
 from ui_components import (
     draw_bounding_boxes,
     render_evidence_section,
@@ -53,6 +61,8 @@ if "lmo_review_status" not in st.session_state:
     st.session_state["lmo_review_status"] = "Pending"
 if "lmo_review_notes" not in st.session_state:
     st.session_state["lmo_review_notes"] = ""
+if "view_mode" not in st.session_state:
+    st.session_state["view_mode"] = "New Inspection"
 
 
 def reset_inspection() -> None:
@@ -74,7 +84,12 @@ with st.sidebar:
     st.markdown("---")
 
     st.subheader("Inspection Mode")
-    st.radio("Mode", ["New Inspection"], index=0, label_visibility="collapsed")
+    st.session_state["view_mode"] = st.radio(
+        "Mode",
+        ["New Inspection", "Inspection History"],
+        index=0 if st.session_state["view_mode"] == "New Inspection" else 1,
+        label_visibility="collapsed",
+    )
 
     st.markdown("---")
     st.subheader("Backend Status")
@@ -121,6 +136,70 @@ st.markdown(
     "Automated inspection-support system for packaged commodity declaration and dimensional compliance screening."
 )
 st.markdown("---")
+
+
+def render_history_page() -> None:
+    """Renders compact history filters and opens a selected inspection."""
+    st.markdown("### Inspection History")
+    filter_cols = st.columns([1, 1, 1, 1, 1])
+    with filter_cols[0]:
+        date_from = st.date_input("Date From", value=None)
+    with filter_cols[1]:
+        date_to = st.date_input("Date To", value=None)
+    with filter_cols[2]:
+        brand_filter = st.text_input("Brand", placeholder="Search brand")
+    with filter_cols[3]:
+        package_filter = st.selectbox("Package Type", ["All", "retail", "wholesale", "combination_pack"])
+    with filter_cols[4]:
+        review_filter = st.selectbox("Review Status", ["All", "Pending", "Verified", "Issue Raised", "N/A"])
+
+    search_id = st.text_input("Search / Inspection ID", placeholder="INSP-...")
+    history = list_inspections(
+        date_from=f"{date_from.isoformat()}T00:00:00Z" if date_from else None,
+        date_to=f"{date_to.isoformat()}T23:59:59.999999Z" if date_to else None,
+        brand_name=brand_filter or None,
+        package_type=None if package_filter == "All" else package_filter,
+        status=None if review_filter == "All" else review_filter,
+        inspection_id=search_id or None,
+    )
+    if not history.get("success"):
+        st.error(history.get("error", {}).get("message", "Inspection history is unavailable."))
+        return
+
+    items = history.get("items", [])
+    if not items:
+        st.info("No inspections match the selected filters.")
+        return
+
+    for item in items:
+        created_at = str(item.get("created_at", ""))[:19].replace("T", " ")
+        issues = item.get("non_compliant_count", 0)
+        cols = st.columns([1.4, 2.2, 1.5, 1.2, 1.2, 1.2])
+        cols[0].write(created_at)
+        cols[1].write(item.get("inspection_id", ""))
+        cols[2].write(item.get("brand_name") or "Not specified")
+        cols[3].write(str(issues))
+        cols[4].write(item.get("review_status", "Pending"))
+        if cols[5].button("Open", key=f"open_{item.get('inspection_id')}"):
+            detail = get_inspection(item["inspection_id"])
+            if detail.get("success") and detail.get("data"):
+                image_ok, image_result = get_inspection_image(item["inspection_id"])
+                st.session_state["inspection_response"] = detail["data"]
+                st.session_state["inspection_id"] = item["inspection_id"]
+                st.session_state["uploaded_image_bytes"] = image_result if image_ok else None
+                st.session_state["uploaded_filename"] = detail["data"].get("metadata", {}).get("source_image_filename")
+                st.session_state["view_mode"] = "New Inspection"
+                review = detail["data"].get("review", {})
+                st.session_state["lmo_review_status"] = review.get("status", "Pending")
+                st.session_state["lmo_review_notes"] = review.get("notes", "")
+                st.rerun()
+            else:
+                st.error(detail.get("error", {}).get("message", "Could not load inspection."))
+
+
+if st.session_state.get("view_mode") == "Inspection History":
+    render_history_page()
+    st.stop()
 
 
 # -----------------------------------------------------------------------------
@@ -352,8 +431,8 @@ else:
         # Cache generated PDF in session state to prevent redundant API calls
         pdf_cache_key = f"pdf_bytes_{inspection_id}"
         if pdf_cache_key not in st.session_state:
-            with st.spinner("Preparing official PDF report..."):
-                pdf_success, pdf_res = get_pdf_report(inspection_data=data)
+            with st.spinner("Loading stored official PDF report..."):
+                pdf_success, pdf_res = get_stored_report(inspection_id)
                 if pdf_success and isinstance(pdf_res, bytes):
                     st.session_state[pdf_cache_key] = pdf_res
                 else:
@@ -388,7 +467,11 @@ else:
     st.markdown("---")
 
     # G. Manual LMO Review Area
-    render_lmo_review_section()
+    review_data = data.get("review", {})
+    if review_data:
+        st.session_state["lmo_review_status"] = review_data.get("status", st.session_state["lmo_review_status"])
+        st.session_state["lmo_review_notes"] = review_data.get("notes", st.session_state["lmo_review_notes"])
+    render_lmo_review_section(inspection_id)
 
     # H. Regulatory Notice
     render_regulatory_notice()

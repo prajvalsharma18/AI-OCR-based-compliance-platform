@@ -357,6 +357,13 @@ class ReportService:
             if "data" in raw_input and isinstance(raw_input["data"], dict) and "findings" in raw_input["data"]:
                 raw_input = raw_input["data"]
 
+            # MongoDB adds persistence metadata around the unchanged unified payload.
+            raw_input = {
+                key: value
+                for key, value in raw_input.items()
+                if key not in {"_id", "created_at", "updated_at", "schema_version", "review", "artifacts"}
+            }
+
             try:
                 return InspectionResponseData.model_validate(raw_input)
             except Exception as exc:

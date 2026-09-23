@@ -470,8 +470,8 @@ def render_evidence_section(data: Dict[str, Any]) -> None:
             )
 
 
-def render_lmo_review_section() -> None:
-    """Renders manual LMO review area bound directly to session state."""
+def render_lmo_review_section(inspection_id: str) -> None:
+    """Renders manual LMO review area and persists changes through FastAPI."""
     st.markdown("## LMO Review")
     st.caption("Official review notes recorded by the inspecting officer. Does not modify automated rule outcomes.")
 
@@ -492,6 +492,22 @@ def render_lmo_review_section() -> None:
                 key="lmo_review_notes",
                 height=100,
             )
+
+        if st.button("Save LMO Review", type="primary", key=f"save_review_{inspection_id}"):
+            from api_client import update_review
+
+            result = update_review(
+                inspection_id=inspection_id,
+                review_status=st.session_state["lmo_review_status"],
+                notes=st.session_state["lmo_review_notes"],
+            )
+            if result.get("success") and result.get("data"):
+                st.session_state["inspection_response"] = result["data"]
+                st.success("LMO review saved.")
+                st.rerun()
+            else:
+                error = result.get("error", {})
+                st.error(error.get("message", "Could not save LMO review."))
 
 
 def render_regulatory_notice() -> None:

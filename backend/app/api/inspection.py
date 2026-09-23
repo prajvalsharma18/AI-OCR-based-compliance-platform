@@ -23,6 +23,9 @@ import cv2
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, status
 from fastapi.responses import JSONResponse
 import numpy as np
+from app.config import settings
+from app.repositories.inspection_repository import InspectionRepository, InspectionRepositoryError
+from app.schemas.history import PersistenceInfo
 
 from app.cv.package_detector import detect_package_boundary
 from app.schemas.compliance import RuleSourceMode
@@ -60,6 +63,7 @@ from app.services.rule8_service import (
     Rule8Service,
     Rule8ServiceError,
 )
+from app.services.report_service import ReportService, ReportServiceError
 from app.utils.image import (
     ImageValidationError,
     get_supported_mime_types,
@@ -458,6 +462,7 @@ async def perform_end_to_end_inspection(
             package_height_mm=resolved_h_mm,
             package_bbox_px=None,  # Triggers automatic package boundary detection
             include_debug_image=False,
+            allow_no_numeral_regions=True,
         )
     except MeasurementServiceError as exc:
         logger.warning("Measurement service error [%s]: %s", exc.code, exc.message)
@@ -630,10 +635,11 @@ async def perform_end_to_end_inspection(
         )
 
     # ------------------------------------------------------------------
-    # Step 12: Persist inspection snapshot to disk
+    # Step 12: Persist inspection snapshot to disk, then MongoDB
     # ------------------------------------------------------------------
+    inspection_json_path = None
     try:
-        storage_service.save_inspection_json(
+        inspection_json_path = storage_service.save_inspection_json(
             inspection_id=inspection_id,
             inspection_data=inspection_data,
         )
@@ -654,6 +660,55 @@ async def perform_end_to_end_inspection(
                 },
             },
         )
+
+    # Generate the canonical stored report before recording artifact references in MongoDB.
+    try:
+        ReportService(storage_service=storage_service).generate_report(inspection_data)
+    except ReportServiceError as exc:
+        logger.warning("Report generation failed for %s [%s]: %s", inspection_id, exc.code, exc.message)
+    except Exception as exc:
+        logger.exception("Unexpected report generation failure for %s: %s", inspection_id, exc)
+
+    # Refresh the JSON reference only after the report path is established.
+    try:
+        storage_service.save_inspection_json(inspection_id=inspection_id, inspection_data=inspection_data)
+    except Exception as exc:
+        logger.warning("Could not refresh inspection JSON artifact references for %s: %s", inspection_id, exc)
+
+    persistence_status = "disabled"
+    persistence_reason = None
+    if settings.MONGODB_ENABLED:
+        mongo_document = inspection_data.model_dump(mode="json")
+        mongo_document["inspection_persistence"] = {"status": "persisted"}
+        mongo_document["artifacts"] = {
+            "inspection_json_path": inspection_json_path,
+            "report_pdf_path": str(storage_service.get_report_path(inspection_id)),
+        }
+        try:
+            InspectionRepository().create_inspection(mongo_document)
+            persistence_status = "persisted"
+            logger.info("Persisted inspection %s to MongoDB", inspection_id)
+        except InspectionRepositoryError as exc:
+            persistence_status = "not_persisted"
+            persistence_reason = exc.message
+            logger.warning("MongoDB persistence unavailable for %s [%s]: %s", inspection_id, exc.code, exc.message)
+        except Exception as exc:
+            persistence_status = "not_persisted"
+            persistence_reason = "MongoDB persistence failed."
+            logger.exception("Unexpected MongoDB persistence failure for %s: %s", inspection_id, exc)
+
+    inspection_data = inspection_data.model_copy(
+        update={
+            "inspection_persistence": PersistenceInfo(
+                status=persistence_status,
+                reason=persistence_reason,
+            )
+        }
+    )
+    try:
+        storage_service.save_inspection_json(inspection_id=inspection_id, inspection_data=inspection_data)
+    except Exception as exc:
+        logger.warning("Could not finalize inspection JSON persistence metadata for %s: %s", inspection_id, exc)
 
     # ------------------------------------------------------------------
     # Step 13: Return structured Unified Inspection response

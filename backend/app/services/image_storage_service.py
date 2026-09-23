@@ -25,6 +25,7 @@ from pathlib import Path
 import re
 import time
 from typing import Any, Dict, Optional, Tuple, Union
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ MAGIC_BYTES_MAP = {
     b"II*\x00": ".tiff",
 }
 
-DEFAULT_STORAGE_ROOT = Path("reports") / "inspections"
+DEFAULT_STORAGE_ROOT = Path(settings.REPORTS_DIR) / "inspections"
 
 
 class ImageStorageError(Exception):
