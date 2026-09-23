@@ -532,4 +532,3 @@ Live Atlas verification      ✅
 
 **SIH 2026 — PS 26034**
 
-kindly convert it to readme.md format and return me
