@@ -7,6 +7,8 @@ A **multimodal AI-assisted inspection platform** for analyzing packaged-product 
 > **Core principle:** The LLM extracts meaning; computer vision measures physical dimensions; deterministic code evaluates compliance rules.
 
 LIVE DEMO - https://ai-ocr-based-compliance-platform.onrender.com/
+
+
 Activate-backend - https://ai-ocr-based-compliance-platform-backend.onrender.com/
 
 ---
