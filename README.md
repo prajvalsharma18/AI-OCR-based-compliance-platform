@@ -1,7 +1,5 @@
 # Automated Compliance Checker for Packaged Commodities
 
-### SIH 2026 — Problem Statement 26034
-
 A **multimodal AI-assisted inspection platform** for analyzing packaged-product labels against Legal Metrology requirements. The system combines **vision-language extraction, calibrated computer vision, deterministic rule engines, FastAPI, MongoDB Atlas, PDF reporting, and Streamlit** to produce traceable inspection results.
 
 > **Core principle:** The LLM extracts meaning; computer vision measures physical dimensions; deterministic code evaluates compliance rules.
@@ -10,6 +8,20 @@ LIVE DEMO - https://ai-ocr-based-compliance-platform.onrender.com/
 
 
 Activate-backend - https://ai-ocr-based-compliance-platform-backend.onrender.com/
+
+This project solves automated compliance screening for packaged commodities. The input is a packaging image plus optional physical package dimensions.
+
+The first stage uses OpenAI Vision for semantic extraction — it identifies declarations such as manufacturer information, generic name, MRP, dates, net quantity and consumer-care details, along with confidence and bounding boxes.
+
+The second stage is classical computer vision using OpenCV. Instead of asking an LLM to estimate font size, I use calibrated pixel measurements to estimate the physical numeral height in millimetres.
+
+Then I run deterministic compliance engines for Rule 6, Rule 7 and Rule 8. Rule 6 handles declaration visibility, Rule 7 compares measured numeral height against the selected ruleset, and Rule 8 evaluates surrounding clear space.
+
+The results are aggregated into a Unified Inspection JSON, while the exact source image is preserved with a SHA-256 hash for provenance. The same inspection can generate a structured PDF report.
+
+On top of that, I built a FastAPI orchestration layer, Streamlit LMO dashboard, MongoDB Atlas persistence, inspection history, historical report retrieval, and persistent LMO review.
+
+The important architectural decision was to keep LLM reasoning, computer vision, and deterministic legal rules separate, rather than making the LLM responsible for all compliance decisions
 
 ---
 
@@ -532,6 +544,4 @@ Regression suite             ✅
 Live Atlas verification      ✅
 
 ```
-
-**SIH 2026 — PS 26034**
 
