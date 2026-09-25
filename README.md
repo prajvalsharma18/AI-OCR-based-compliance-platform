@@ -442,7 +442,7 @@ LangChain/LangGraph is **not required by the current architecture**; it can be i
 
 ---
 
-## SIH Functional Coverage
+## Functional Coverage
 
 ### Implemented
 
